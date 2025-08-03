@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Импорт подписки VacVPN</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+    function doRedirect() {
+        const params = new URLSearchParams(window.location.search);
+        // Получаем уже готовую deep-link ссылку
+        const deepLink = params.get('deeplink');
+
+        if (deepLink) {
+            window.location.href = deepLink;
+            document.getElementById('message').innerHTML = 
+                'Если импорт не начался автоматически, <a href="' + deepLink + '">нажмите сюда</a>.';
+        } else {
+            document.getElementById('message').innerHTML = 
+                'Ошибка: ссылка для импорта не найдена.';
+        }
+    }
+    </script>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            padding: 50px 20px;
+            background: #f7f7f7;
+        }
+        .download-links {
+            margin-top: 40px;
+        }
+        .download-links a {
+            display: block;
+            margin: 10px auto;
+            padding: 12px 20px;
+            width: 260px;
+            border-radius: 8px;
+            background: #007bff;
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .download-links a:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body onload="doRedirect();">
+    <h2>Импорт подписки...</h2>
+    <p id="message">Пожалуйста, подождите, идет перенаправление в приложение V2RayTUN...</p>
+
+    <div class="download-links">
+        <h3>Скачать клиент для вашего устройства:</h3>
+        <a href="https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-windows64.zip">💻 Windows (NekoBox)</a>
+        <a href="https://play.google.com/store/apps/details?id=com.v2raytun.android&pcampaignid=web_share">🤖 Android (V2RayTun)</a>
+        <a href="https://apps.apple.com/ru/app/v2raytun/id6476628951">🍏 iOS (V2RayTun)</a>
+        <a href="https://github.com/yanue/V2rayU/releases/latest">🍎 macOS (V2rayU)</a>
+    </div>
+</body>
+</html>
