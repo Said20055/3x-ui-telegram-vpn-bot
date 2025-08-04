@@ -63,42 +63,57 @@ class Webhook:
 
 
 @dataclass
-class Marzban:
+class Xui:
+  
+    host: str
     username: str
     password: str
-    token_expire: int
+    inbound_id: int
     verify_ssl: bool
 
     @staticmethod
-    def from_env(env: Env, env_marz: Env):
-        username = env_marz.str("SUDO_USERNAME")
-        password = env_marz.str("SUDO_PASSWORD")
-        token_expire = env_marz.int("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 1440)
-        verify_ssl = env.bool("MARZ_HAS_CERTIFICATE")
-        return Marzban(username=username, password=password,
-                       token_expire=token_expire,
-                       verify_ssl=verify_ssl)
+    def from_env(env: Env):
+        """
+        Создает экземпляр конфигурации Xui из переменных окружения.
+        """
+        # Мы больше не используем отдельный env_marz, 
+        # все переменные для XUI будут с префиксом XUI_
+        host = env.str("XUI_HOST")
+        username = env.str("XUI_USERNAME") 
+        password = env.str("XUI_PASSWORD") 
+        inbound_id = env.int("XUI_INBOUND_ID")
+        # По умолчанию SSL не проверяем, т.к. бот и панель в одной Docker-сети.
+        # Пользователь может переопределить это, если бот будет работать вне Docker.
+        verify_ssl = env.bool("XUI_VERIFY_SSL", False) 
+
+        return Xui(
+            host=host,
+            username=username,
+            password=password,
+            inbound_id=inbound_id,
+            verify_ssl=verify_ssl
+        )
+
 
 
 @dataclass
 class Config:
     tg_bot: TgBot
     webhook: Webhook
-    marzban: Marzban
+    xui: Xui
     dataBase: DataBase
     yookassa: YooKassa
 
 
 def load_config():
-    from environs import Env
     env = Env()
     env.read_env('.env')
-    env_marz = Env()
-    env_marz.read_env('.env.marzban')
+    env_3xui = Env()
+    env_3xui.read_env('.env.3xui')
     return Config(
         tg_bot=TgBot.from_env(env),
         webhook=Webhook.from_env(env),
-        marzban=Marzban.from_env(env, env_marz),
+        xui=Xui.from_env(env_3xui),
         dataBase=DataBase.from_env(env),
         yookassa=YooKassa.from_env(env)
     )

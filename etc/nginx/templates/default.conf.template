@@ -1,25 +1,33 @@
+# nginx.conf (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ)
+
 server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN *.$DOMAIN;
 
-    # всё на https с портом 8443
+    # Эта часть остается без изменений.
+    # Перенаправляем весь HTTP трафик на HTTPS.
+    # ЗАМЕЧАНИЕ: Вы используете порт 8443, убедитесь, что это сделано намеренно.
+    # Стандартный порт для HTTPS - 443.
     return 301 https://$host:8443$request_uri;
 }
+
 server {
     root /var/www/html;
     index index.html;
+
+    # Эта часть остается без изменений.
+    # Nginx слушает порт 443 (и 10000) с SSL.
     listen [::]:443 ssl;
     listen 443 ssl;
     listen 127.0.0.1:10000 ssl proxy_protocol;
     http2 on;
 
-
     server_name $DOMAIN *.$DOMAIN;
 
+    # Настройки SSL остаются без изменений.
     ssl_certificate /etc/nginx/certs/fullchain.pem;
     ssl_certificate_key /etc/nginx/certs/privkey.pem;
-
     ssl_session_cache shared:le_nginx_SSL:10m;
     ssl_session_timeout 1440m;
     ssl_session_tickets off;
@@ -29,50 +37,47 @@ server {
     set_real_ip_from 127.0.0.1;
     real_ip_header proxy_protocol;
     
+    # Этот блок остается без изменений.
     location /import {
-        # Указываем, где искать файлы для этого location
         root /usr/share/nginx/html;
-        # Пытаемся отдать файл import.html
         try_files /import.html =404;
     }
 
-    # =================================================================
-    # === БЛОК ДЛЯ YOOKASSA (ЕДИНСТВЕННОЕ ИЗМЕНЕНИЕ) ===
-    # =================================================================
-    # Этот блок должен стоять ПЕРЕД блоком для Marzban,
-    # чтобы перехватывать запросы на /yookassa первым.
+    # Этот блок для YooKassa остается без изменений.
     location = /yookassa {
-        # Перенаправляем запрос на сервис 'vpn_bot' на порт 8081,
-        # где наш aiohttp сервер слушает вебхуки.
         proxy_pass http://vpn_bot:8081;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
-        # Передаем важные заголовки.
+    # =================================================================
+    # === БЛОК ДЛЯ ПРОКСИРОВАНИЯ ПАНЕЛИ 3X-UI (ЗАМЕНЕН) ===
+    # =================================================================
+    # Старый блок `location ~* ^/(dashboard|api|sub|statics)(/|$)` УДАЛЕН.
+    # Вместо него мы используем один универсальный блок, который будет
+    # обрабатывать ВСЕ запросы, не пойманные предыдущими блоками (YooKassa, /import).
+    
+    location / {
+        # Перенаправляем все запросы на наш сервис xui по протоколу http.
+        proxy_pass http://xui:54321;
+        
+        # Стандартные заголовки для корректной работы WebSocket и передачи IP.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     # =================================================================
-    # === КОНЕЦ БЛОКА ДЛЯ YOOKASSA ===
+    # === КОНЕЦ БЛОКА ДЛЯ 3X-UI ===
     # =================================================================
 
 
-    # --- Ваш оригинальный блок для Marzban ---
-    location ~* ^/(dashboard|api|sub|statics)(/|$) {
-        # Используем имя сервиса 'marzban', а не 'free_vpn_bot_marzban'
-        proxy_pass https://marzban:8002;
-            proxy_ssl_verify off;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Host $server_name;
-
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-
-
+    # Блоки ошибок остаются без изменений.
     error_page 404 /custom_404.html;
     location = /custom_404.html {
         root /usr/share/nginx/html;

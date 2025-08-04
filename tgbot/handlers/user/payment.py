@@ -10,7 +10,7 @@ from aiogram.filters import Command
 
 from loader import logger
 from database import requests as db
-from marzban.init_client import MarzClientCache
+from xui.init_client import XUIClient
 from tgbot.handlers.user.profile import show_profile_logic
 from tgbot.keyboards.inline import cancel_fsm_keyboard, tariffs_keyboard, back_to_main_menu_keyboard
 from tgbot.services import payment
@@ -30,7 +30,7 @@ async def show_tariffs_logic(event: Message | CallbackQuery, state: FSMContext):
     fsm_data = await state.get_data()
     discount = fsm_data.get("discount")
     
-    active_tariffs = db.get_active_tariffs()
+    active_tariffs = await db.get_active_tariffs()
     tariffs_list = list(active_tariffs) if active_tariffs else []
 
     text = "Пожалуйста, выберите тарифный план:"
@@ -92,10 +92,10 @@ async def enter_promo_callback_handler(call: CallbackQuery, state: FSMContext):
     await _start_promo_input(call, state)
         
 @payment_router.message(PromoApplyFSM.awaiting_code)
-async def process_promo_code(message: Message, state: FSMContext, bot: Bot, marzban: MarzClientCache):
+async def process_promo_code(message: Message, state: FSMContext, bot: Bot, xui: XUIClient):
     """Обрабатывает введенный промокод."""
     code = message.text.upper()
-    promo = db.get_promo_code(code)
+    promo = await db.get_promo_code(code)
     user_id = message.from_user.id
 
     await message.delete() # Сразу удаляем сообщение с кодом
@@ -104,31 +104,31 @@ async def process_promo_code(message: Message, state: FSMContext, bot: Bot, marz
     if not promo: error_text = "Промокод не найден."
     elif promo.uses_left <= 0: error_text = "Этот промокод уже закончился."
     elif promo.expire_date and promo.expire_date < datetime.now(): error_text = "Срок действия этого промокода истек."
-    elif db.has_user_used_promo(user_id, promo.id): error_text = "Вы уже использовали этот промокод."
+    elif await db.has_user_used_promo(user_id, promo.id): error_text = "Вы уже использовали этот промокод."
 
     if error_text:
         await message.answer(error_text)
         return
 
-    db.use_promo_code(user_id, promo)
+    await db.use_promo_code(user_id, promo)
 
     if promo.bonus_days > 0:
         await state.clear()
-        user_from_db = db.get_user(user_id) # Получаем юзера один раз
-        marzban_username = (user_from_db.marzban_username or f"user_{user_id}").lower()
+        user_from_db = await db.get_user(user_id) # Получаем юзера один раз
+        xui_username = (user_from_db.xui_username or f"user_{user_id}").lower()
         
         try:
             # --- ИСПРАВЛЕНО: Используем наш "умный" метод modify_user ---
-            await marzban.modify_user(username=marzban_username, expire_days=promo.bonus_days)
+            await xui.modify_user(username=xui_username, expire_days=promo.bonus_days)
             
             # Обновляем наши локальные данные ТОЛЬКО после успешной операции в Marzban
-            db.extend_user_subscription(user_id, promo.bonus_days)
-            if not user_from_db.marzban_username:
-                db.update_user_marzban_username(user_id, marzban_username)
+            await db.extend_user_subscription(user_id, promo.bonus_days)
+            if not user_from_db.xui_username:
+                await db.update_user_xui_username(user_id, xui_username)
             
             await message.answer(f"✅ Промокод успешно применен! Вам начислено <b>{promo.bonus_days} бонусных дней</b>.")
             # Показываем обновленный профиль
-            await show_profile_logic(message, marzban, bot)
+            await show_profile_logic(message, xui, bot)
 
         except Exception as e:
             logger.error(f"Failed to apply bonus days for promo code {code} for user {user_id}: {e}", exc_info=True)
@@ -150,7 +150,7 @@ async def select_tariff_handler(call: CallbackQuery, state: FSMContext, bot: Bot
     await call.answer()
     
     tariff_id = int(call.data.split("_")[2])
-    tariff = db.get_tariff_by_id(tariff_id)
+    tariff = await db.get_tariff_by_id(tariff_id)
     if not tariff:
         await call.message.edit_text("Ошибка! Тариф не найден.", reply_markup=back_to_main_menu_keyboard())
         return

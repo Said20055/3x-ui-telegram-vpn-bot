@@ -5,7 +5,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from config import load_config  # Убедитесь, что путь до конфига правильный
-from marzban.init_client import MarzClientCache
+from xui.init_client import XUIClient
 from utils.logger import APINotificationHandler
 
 # Загружаем конфиг
@@ -58,5 +58,9 @@ bot = Bot(
 # Убедитесь, что для Marzban используется правильный внутренний или внешний URL.
 # Я оставлю ваш вариант, но это место требует внимания.
 
-base_url = f'https://{config.webhook.domain}/' if config.webhook.use_webhook else 'https://free_vpn_bot_marzban:8002'
-marzban_client = MarzClientCache(base_url, config, logger)
+base_url = f'https://{config.webhook.domain}/' if config.webhook.use_webhook else 'https://vpn_bot_3x-ui:54321'
+xui_client = XUIClient(
+    config=config, # <-- Передаем весь объект конфига
+    logger=logger,
+    verify_ssl=config.xui.verify_ssl # verify_ssl все еще можно передать отдельно для гибкости
+)

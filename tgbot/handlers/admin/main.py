@@ -25,11 +25,11 @@ async def admin_stats_handler(call: CallbackQuery):
     await call.answer("Собираю статистику...")
     
     # Собираем данные с помощью новых функций
-    total_users = db.count_all_users()
-    active_subs = db.count_active_subscriptions()
-    users_today = db.count_new_users_for_period(days=1)
-    users_week = db.count_new_users_for_period(days=7)
-    users_month = db.count_new_users_for_period(days=30)
+    total_users = await db.count_all_users()
+    active_subs = await db.count_active_subscriptions()
+    users_today = await db.count_new_users_for_period(days=1)
+    users_week = await db.count_new_users_for_period(days=7)
+    users_month = await db.count_new_users_for_period(days=30)
     
     # Формируем текст сообщения
     text = (

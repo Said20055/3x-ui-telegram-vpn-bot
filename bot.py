@@ -11,20 +11,20 @@ from aiohttp import web
 
 # --- ШАГ 1: Импортируем готовые объекты из loader ---
 # Мы импортируем уже настроенные: bot, config, logger и КЛИЕНТ MARZBAN
-from loader import bot, config, logger, marzban_client
+from loader import bot, config, logger, xui_client
 
 # --- ШАГ 2: Импортируем наши новые модули и хендлеры ---
-from db import setup_database
+from db import setup_database_sync
 from tgbot.handlers import routers_list
 from tgbot.middlewares.flood import ThrottlingMiddleware
 from tgbot.handlers.webhook_handlers import yookassa_webhook_handler
 from utils import broadcaster
 
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-async def on_startup(bot, marzban): # Добавили marzban в аргументы
+async def on_startup(bot): # Добавили marzban в аргументы
     """Выполняется при запуске бота."""
     # 1. Инициализируем базу данных
-    setup_database()
+    setup_database_sync()
 
     # 2. Запускаем планировщик
     try:
@@ -118,7 +118,7 @@ def register_global_middlewares(dp: Dispatcher):
 
 def main_webhook():
     storage = MemoryStorage()
-    dp = Dispatcher(storage=storage, marzban=marzban_client)
+    dp = Dispatcher(storage=storage, xui=xui_client)
     dp.include_routers(*routers_list)
     register_global_middlewares(dp)
     dp.startup.register(on_startup)
@@ -126,7 +126,7 @@ def main_webhook():
     app = web.Application()
     app['bot'] = bot
 
-    app['marzban'] = marzban_client # Это у вас уже должно быть
+    app['xui'] = xui_client # Это у вас уже должно быть
     app['config'] = config # <--- ДОБАВЬТЕ ЭТУ СТРОКУ
     
     
@@ -138,7 +138,7 @@ def main_webhook():
     # 2. Регистрируем обработчик для вебхуков YooKassa на отдельный путь
     app.router.add_post('/yookassa', yookassa_webhook_handler)
 
-    setup_application(app, dp, bot=bot, marzban=marzban_client)
+    setup_application(app, dp, bot=bot, xui=xui_client)
     
     logger.info("Starting bot in webhook mode...")
     web.run_app(app, host='0.0.0.0', port=8080)
@@ -146,12 +146,12 @@ def main_webhook():
 
 async def main_polling():
     storage = MemoryStorage()
-    dp = Dispatcher(storage=storage, marzban=marzban_client)
+    dp = Dispatcher(storage=storage, xui=xui_client)
     dp.include_routers(*routers_list)
     register_global_middlewares(dp)
     
     # Вызываем on_startup до запуска основных процессов
-    await on_startup(bot, marzban_client)
+    await on_startup(bot)
     
     logger.info("Starting bot in polling mode...")
 
@@ -173,7 +173,7 @@ async def start_yookassa_webhook_server(dp: Dispatcher):
     
     # "Внедряем" в приложение все нужные нам объекты
     app['bot'] = bot
-    app['marzban'] = marzban_client # <--- ВОТ ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ
+    app['xui'] = xui_client # <--- ВОТ ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ
     app['config'] = config         # <--- ЭТА СТРОКА НУЖНА ДЛЯ ОПОВЕЩЕНИЙ АДМИНА
     app['dp'] = dp
     

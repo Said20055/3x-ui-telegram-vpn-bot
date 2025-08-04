@@ -24,7 +24,7 @@ class TariffFSM(StatesGroup):
 
 # --- Хелпер для показа карточки тарифа ---
 async def show_tariff_card(call: CallbackQuery, tariff_id: int):
-    tariff = db.get_tariff_by_id(tariff_id)
+    tariff = await db.get_tariff_by_id(tariff_id)
     if not tariff:
         await call.message.edit_text("Тариф не найден.")
         return
@@ -43,7 +43,7 @@ async def show_tariff_card(call: CallbackQuery, tariff_id: int):
 # --- Основное меню управления тарифами ---
 @admin_tariffs_router.callback_query(F.data == "admin_tariffs_menu")
 async def tariffs_menu(call: CallbackQuery):
-    tariffs = db.get_all_tariffs()
+    tariffs = await db.get_all_tariffs()
     await call.message.edit_text(
         "<b>💳 Управление тарифами</b>\n\nВыберите тариф для редактирования или добавьте новый.",
         reply_markup=tariffs_list_keyboard(list(tariffs))
@@ -60,10 +60,10 @@ async def manage_single_tariff(call: CallbackQuery):
 @admin_tariffs_router.callback_query(F.data.startswith("admin_toggle_tariff_"))
 async def toggle_tariff_status(call: CallbackQuery):
     tariff_id = int(call.data.split("_")[3])
-    tariff = db.get_tariff_by_id(tariff_id)
+    tariff = await db.get_tariff_by_id(tariff_id)
     if tariff:
         new_status = not tariff.is_active
-        db.update_tariff_field(tariff_id, 'is_active', new_status)
+        await db.update_tariff_field(tariff_id, 'is_active', new_status)
         await call.answer(f"Статус изменен на {'Активен' if new_status else 'Отключен'}")
         await show_tariff_card(call, tariff_id)
 
@@ -80,7 +80,7 @@ async def delete_tariff_confirm(call: CallbackQuery):
 @admin_tariffs_router.callback_query(F.data.startswith("admin_confirm_delete_tariff_"))
 async def delete_tariff_finish(call: CallbackQuery):
     tariff_id = int(call.data.split("_")[4])
-    db.delete_tariff_by_id(tariff_id)
+    await db.delete_tariff_by_id(tariff_id)
     await call.answer("Тариф успешно удален", show_alert=True)
     await tariffs_menu(call) # Возвращаемся к списку тарифов
 
@@ -118,7 +118,7 @@ async def add_tariff_duration(message: Message, state: FSMContext):
         return
     
     data = await state.get_data()
-    new_tariff = db.add_new_tariff(
+    new_tariff = await db.add_new_tariff(
         name=data['name'],
         price=data['price'],
         duration_days=duration
@@ -164,6 +164,6 @@ async def edit_tariff_finish(message: Message, state: FSMContext):
         await message.answer("Неверный формат данных. Попробуйте еще раз.")
         return
 
-    db.update_tariff_field(tariff_id, field, new_value)
+    await db.update_tariff_field(tariff_id, field, new_value)
     await state.clear()
     await message.answer("✅ Данные тарифа успешно обновлены!")

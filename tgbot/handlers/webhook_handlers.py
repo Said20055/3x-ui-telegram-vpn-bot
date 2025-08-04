@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 # Импортируем сервисы, БД, клиент и логгер
 from tgbot.services import payment
 from database import requests as db
-from marzban.init_client import MarzClientCache
+from  xui.init_client import XUIClient
 from loader import logger, config
 
 # Импортируем нашу функцию для показа профиля из хендлеров
@@ -16,48 +16,48 @@ from tgbot.handlers.user.profile import show_profile_logic
 
 
 # --- 1. Логика управления основным пользователем ---
-async def _handle_user_payment(user_id: int, tariff, marzban: MarzClientCache) -> bool:
+async def _handle_user_payment(user_id: int, tariff, xui: XUIClient) -> bool:
     """Продлевает подписку в БД и создает/модифицирует пользователя в Marzban."""
     subscription_days = tariff.duration_days
-    db.extend_user_subscription(user_id, days=subscription_days)
+    await db.extend_user_subscription(user_id, days=subscription_days)
     logger.info(f"Subscription for user {user_id} in local DB extended by {subscription_days} days.")
 
-    user_from_db = db.get_user(user_id)
-    marzban_username = (user_from_db.marzban_username or f"user_{user_id}").lower()
+    user_from_db = await db.get_user(user_id)
+    xui_username = (user_from_db.xui_username or f"user_{user_id}").lower()
     is_new_user_for_marzban = False
     try:
-        if await marzban.get_user(marzban_username):
-            await marzban.modify_user(username=marzban_username, expire_days=subscription_days)
+        if await xui.get_user(xui_username):
+            await xui.modify_user(username=xui_username, expire_days=subscription_days)
         else:
-            await marzban.add_user(username=marzban_username, expire_days=subscription_days)
+            await xui.add_user(username=xui_username, expire_days=subscription_days)
             is_new_user_for_marzban = True
-        if not user_from_db.marzban_username:
-            db.update_user_marzban_username(user_id, marzban_username)
+        if not user_from_db.xui_username:
+            await db.update_user_xui_username(user_id, xui_username)
             
     except Exception as e:
-        logger.error(f"CRITICAL: Failed to create/modify Marzban user {marzban_username}: {e}", exc_info=True)
+        logger.error(f"CRITICAL: Failed to create/modify Marzban user {xui_username}: {e}", exc_info=True)
         # TODO: Добавить отправку уведомления админу о критической ошибке
     return is_new_user_for_marzban
 
 
 # --- 2. Логика начисления реферального бонуса ---
-async def _handle_referral_bonus(user_who_paid_id: int, marzban: MarzClientCache, bot: Bot):
+async def _handle_referral_bonus(user_who_paid_id: int, xui: XUIClient, bot: Bot):
     """Проверяет и начисляет бонус рефереру."""
-    user_who_paid = db.get_user(user_who_paid_id)
+    user_who_paid = await db.get_user(user_who_paid_id)
     if not (user_who_paid and user_who_paid.referrer_id and not user_who_paid.is_first_payment_made):
         return # Если нет реферера или это не первая оплата - выходим
 
     bonus_days = 7
-    referrer = db.get_user(user_who_paid.referrer_id)
+    referrer = await db.get_user(user_who_paid.referrer_id)
     if not referrer:
         return
 
     # Если у реферера есть активный аккаунт, продлеваем его везде
-    if referrer.marzban_username:
+    if referrer.xui_username:
         try:
-            await marzban.modify_user(username=referrer.marzban_username, expire_days=bonus_days)
-            db.extend_user_subscription(referrer.user_id, days=bonus_days)
-            db.add_bonus_days(referrer.user_id, days=bonus_days)
+            await xui.modify_user(username=referrer.xui_username, expire_days=bonus_days)
+            await db.extend_user_subscription(referrer.user_id, days=bonus_days)
+            await db.add_bonus_days(referrer.user_id, days=bonus_days)
             logger.info(f"Referral bonus: Extended subscription for referrer {referrer.user_id} by {bonus_days} days.")
             await bot.send_message(
                 referrer.user_id,
@@ -65,21 +65,21 @@ async def _handle_referral_bonus(user_who_paid_id: int, marzban: MarzClientCache
             )
         except Exception as e:
             logger.error(f"Failed to apply referral bonus to user {referrer.user_id}: {e}")
-            db.add_bonus_days(referrer.user_id, days=bonus_days) # Начисляем виртуальные дни
+            await db.add_bonus_days(referrer.user_id, days=bonus_days) # Начисляем виртуальные дни
             await bot.send_message(referrer.user_id, "Не удалось продлить вашу подписку, бонусные дни зачислены на ваш баланс.")
     else:
         # Если у реферера нет аккаунта, просто даем виртуальные дни
-        db.add_bonus_days(referrer.user_id, days=bonus_days)
+        await db.add_bonus_days(referrer.user_id, days=bonus_days)
         logger.info(f"Referral bonus: Added {bonus_days} virtual bonus days to user {referrer.user_id}.")
         try:
             await bot.send_message(referrer.user_id, f"🎉 Ваш реферал совершил первую оплату! Вам начислено <b>{bonus_days} бонусных дней</b>.")
         except Exception: pass
             
-    db.set_first_payment_done(user_who_paid_id)
+    await db.set_first_payment_done(user_who_paid_id)
 
 
 # --- 3. Логика уведомления пользователя об оплате и показ ключей ---
-async def _notify_user_and_show_keys(user_id: int, tariff, marzban: MarzClientCache, bot: Bot,  request: web.Request):
+async def _notify_user_and_show_keys(user_id: int, tariff, xui: XUIClient, bot: Bot,  request: web.Request):
     """
     Уведомляет пользователя об успехе, очищает старые сообщения/состояния и показывает профиль.
     """
@@ -124,7 +124,7 @@ async def _notify_user_and_show_keys(user_id: int, tariff, marzban: MarzClientCa
         fake_message = Message(message_id=0, date=datetime.now(), chat=fake_chat, from_user=fake_user)
         
         # Вызываем функцию показа профиля, передавая bot ЯВНО как отдельный аргумент
-        await show_profile_logic(fake_message, marzban, bot)
+        await show_profile_logic(fake_message, xui, bot)
         
     except Exception as e:
         logger.error(f"Could not send payment success notification to user {user_id}: {e}")
@@ -140,7 +140,7 @@ async def _log_transaction(
     is_new_user: bool
 ):
     """Формирует и отправляет лог о транзакции в специальную тему."""
-    user = db.get_user(user_id)
+    user = await db.get_user(user_id)
     if not user: return
     
     # Определяем, была ли это первая покупка или продление
@@ -148,8 +148,8 @@ async def _log_transaction(
     
     text = (
         f"{action_type}\n\n"
-        f"👤 <b>Пользователь:</b> <a href='tg://user?id={user.id}'>{user.full_name}</a>\n"
-        f"<b>ID:</b> <code>{user.id}</code>\n"
+        f"👤 <b>Пользователь:</b> <a href='tg://user?id={user.user_id}'>{user.full_name}</a>\n"
+        f"<b>ID:</b> <code>{user.user_id}</code>\n"
         f"<b>Username:</b> @{user.username or 'Отсутствует'}\n\n"
         f"💳 <b>Тариф:</b> «{tariff_name}»\n"
         f"💰 <b>Сумма:</b> {tariff_price} RUB"
@@ -179,7 +179,7 @@ async def yookassa_webhook_handler(request: web.Request):
         metadata = notification.object.metadata
         user_id = int(metadata['user_id'])
         tariff_id = int(metadata['tariff_id'])
-        tariff = db.get_tariff_by_id(tariff_id)
+        tariff = await db.get_tariff_by_id(tariff_id)
 
         if not tariff:
             logger.error(f"Webhook for non-existent tariff_id: {tariff_id}")
@@ -189,11 +189,11 @@ async def yookassa_webhook_handler(request: web.Request):
 
         # Получаем объекты бота и клиента Marzban из приложения
         bot: Bot = request.app['bot']
-        marzban: MarzClientCache = request.app['marzban']
+        xui: XUIClient = request.app['xui']
          
         # Вызываем наши функции последовательно
-        is_new = await _handle_user_payment(user_id, tariff, marzban)
-        await _handle_referral_bonus(user_id, marzban, bot)
+        is_new = await _handle_user_payment(user_id, tariff, xui)
+        await _handle_referral_bonus(user_id, xui, bot)
         await _log_transaction(
         bot=bot,
         user_id=user_id,
@@ -201,7 +201,7 @@ async def yookassa_webhook_handler(request: web.Request):
         tariff_price=tariff.price,
         is_new_user=is_new
     )
-        await _notify_user_and_show_keys(user_id, tariff, marzban, bot, request)
+        await _notify_user_and_show_keys(user_id, tariff, xui, bot, request)
 
         return web.Response(status=200)
 

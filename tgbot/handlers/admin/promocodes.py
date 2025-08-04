@@ -24,7 +24,7 @@ async def show_promo_codes_list(event: types.Message | types.CallbackQuery):
     Универсальная функция для отображения списка промокодов.
     Работает и с Message, и с CallbackQuery.
     """
-    codes = db.get_all_promo_codes()
+    codes = await db.get_all_promo_codes()
     text = "🎁 <b>Управление промокодами</b>"
     reply_markup = promo_codes_list_keyboard(list(codes))
     
@@ -49,7 +49,7 @@ async def promo_codes_menu_callback(call: CallbackQuery):
 @admin_promo_router.callback_query(F.data.startswith("admin_delete_promo_"))
 async def delete_promo(call: CallbackQuery):
     promo_id = int(call.data.split("_")[3])
-    db.delete_promo_code(promo_id)
+    await db.delete_promo_code(promo_id)
     await call.answer("Промокод удален", show_alert=True)
     await show_promo_codes_list(call)
 
@@ -65,7 +65,7 @@ async def add_promo_start(call: CallbackQuery, state: FSMContext):
 
 @admin_promo_router.message(PromoFSM.get_code)
 async def add_promo_code(message: Message, state: FSMContext):
-    if db.get_promo_code(message.text):
+    if await db.get_promo_code(message.text):
         await message.answer("Такой промокод уже существует. Введите другой.")
         return
     await state.update_data(code=message.text)
@@ -101,7 +101,7 @@ async def add_promo_max_uses(message: Message, state: FSMContext):
     data = await state.get_data()
     promo_type = data['type']
     
-    db.create_promo_code(
+    await db.create_promo_code(
         code=data['code'],
         bonus_days=data['value'] if promo_type == 'days' else 0,
         discount_percent=data['value'] if promo_type == 'discount' else 0,

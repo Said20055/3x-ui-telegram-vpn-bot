@@ -1,12 +1,12 @@
 services:
   nginx:
-    container_name: free_vpn_bot_nginx
+    container_name: vpn_bot_nginx
     image: nginx:1.25-alpine
     ports:
       - "80:80"
       - "8443:443"
     networks:
-      - free_vpn_bot
+      - vpn_bot
     restart: always
     environment:
       DOMAIN: ${DOMAIN}
@@ -20,42 +20,39 @@ services:
       - ${CERT_FULLCHAIN_PATH}:/etc/nginx/certs/fullchain.pem
       - ${CERT_KEY_PATH}:/etc/nginx/certs/privkey.pem
       - ./certbot/data:/var/www/certbot
-  marzban:
-    image: gozargah/marzban:v0.8.4
-    container_name: free_vpn_bot_marzban
+  postgres:
+    image: postgres:15-alpine  # Используем официальный и легкий образ
+    container_name: vpn_bot_postgres
     restart: always
-    dns:
-      - 1.1.1.1
-      - 1.0.0.1
-    env_file: .env.marzban
     environment:
-      UVICORN_HOST: "0.0.0.0"
-      UVICORN_PORT: "8002"
-      YOUR_DOMAIN: ${DOMAIN}
-    ports:
-      - "127.0.0.1:8002:8002"
-      - "443:443"
-    networks:
-      - free_vpn_bot
+      # Эти переменные Docker использует для создания БД и пользователя при первом запуске
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - marz-storage:/code
-      - ./volumes/marzban:/var/lib/marzban
-      - ./certbot/data:/var/www/certbot
-      - /etc/timezone:/etc/timezone:ro
-      - ${CERT_FULLCHAIN_PATH}:/etc/marzban/certs/fullchain.pem
-      - ${CERT_KEY_PATH}:/etc/marzban/certs/privkey.pem
-      - ${CERT_FULLCHAIN_PATH}:${CERT_FULLCHAIN_PATH}
-      - ${CERT_KEY_PATH}:${CERT_KEY_PATH}
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "900k"
-        max-file: "10"
+      # Эта строка сохраняет все данные вашей БД в именованный том,
+      # чтобы они не пропали при остановке контейнера
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - vpn_bot 
+  xui:
+    image: ghcr.io/mhsanaei/3x-ui:latest # Используем актуальный образ
+    container_name: vpn_bot_xui
+    restart: always
+    networks:
+      - vpn_bot 
+    volumes:
+      - xui_db:/etc/x-ui/          # Для хранения базы данных панели
+      - xui_certs:/root/cert/      # Для хранения SSL сертификатов, если понадобятся
+    ports:
+      - "127.0.0.1:54321:2053" # Порт для доступа к веб-интерфейсу панели (можете поменять)
+      - "443:443"     # Порт для VPN-протоколов (VLESS/VMess и т.д.)
   vpn_bot:
-    image: free_vpn_bot
+    image: vpn_bot
     ports:
       - "8081:8081"
-    container_name: free_vpn_bot
+    container_name: vpn_bot
     stop_signal: SIGINT
     build:
       context: .
@@ -67,13 +64,17 @@ services:
     env_file:
       - ".env"
     networks:
-      - free_vpn_bot
+      - vpn_bot
     depends_on:
-      - marzban
+      - xui
 networks:
-  free_vpn_bot:
+  vpn_bot:
     driver: bridge
 
 volumes:
-  marz-storage:
+  postgres_data:
+    driver: local
+  xui_db:
+    driver: local
+  xui_certs:
     driver: local

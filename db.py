@@ -1,109 +1,83 @@
+# db.py (ФИНАЛЬНАЯ ВЕРСИЯ НА SQLAlchemy)
+
 import datetime
-from peewee import (Model, PostgresqlDatabase, BigIntegerField, CharField, DateTimeField,
-                    BooleanField, ForeignKeyField, IntegerField, FloatField, BigAutoField)
+from sqlalchemy import (
+    create_engine, BigInteger, String, DateTime, Boolean, ForeignKey,
+    Integer, Float, select, func
+)
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-# Исправляем путь импорта в соответствии с вашей структурой проекта
-from config import load_config 
+from config import load_config
 
-# Загружаем конфигурацию
+# --- 1. Настройка ---
 config = load_config()
 db_config = config.dataBase
+DSN = f"postgresql+asyncpg://{db_config.user}:{db_config.password}@{db_config.host}:{db_config.port}/{db_config.db_name}"
+SYNC_DSN = f"postgresql://{db_config.user}:{db_config.password}@{db_config.host}:{db_config.port}/{db_config.db_name}"
 
-# Подключаемся к PostgreSQL, используя ваши данные из config
-db = PostgresqlDatabase(
-    db_config.db_name,
-    user=db_config.user,
-    password=db_config.password,
-    host=db_config.host,
-    port=db_config.port
-)
+# Создаем асинхронный "движок" и фабрику сессий
+async_engine = create_async_engine(DSN)
+async_session_maker = async_sessionmaker(async_engine, expire_on_commit=False)
 
+# --- 2. Базовая модель ---
+class Base(DeclarativeBase):
+    pass
 
-class BaseModel(Model):
-    class Meta:
-        database = db
-
-class Tariff(BaseModel):
-    id = BigAutoField(primary_key=True)
-    name = CharField()                     # Например, "1 месяц"
-    price = FloatField()                   # Цена в рублях, например, 100.00
-    duration_days = IntegerField()         # Срок подписки в днях, например, 30
-    is_active = BooleanField(default=True) # Флаг, чтобы можно было временно отключать тариф
-
-    class Meta:
-        table_name = "tariffs"
-class User(BaseModel):
-    support_topic_id = IntegerField(null=True)
-    user_id = BigIntegerField(primary_key=True)  # Используем BigIntegerField для Telegram ID
-    username = CharField(null=True)
-    full_name = CharField()
-    reg_date = DateTimeField(default=datetime.datetime.now)
+# --- 3. Определяем все ваши модели на новом синтаксисе ---
+class User(Base):
+    __tablename__ = 'users'
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[str] = mapped_column(String, nullable=True)
+    full_name: Mapped[str] = mapped_column(String)
+    reg_date: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    subscription_end_date: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    xui_username: Mapped[str] = mapped_column(String, unique=True, nullable=True)
     
-    # Поля для подписки
-    subscription_end_date = DateTimeField(null=True)
-    marzban_username = CharField(unique=True, null=True)  # Имя пользователя в Marzban
-
-    # Поля для реферальной системы
-    # --- ИСПРАВЛЕНО: Убран backref='referrals' для предотвращения RecursionError ---
-    referrer_id = ForeignKeyField('self', null=True, on_delete='SET NULL') 
+    # --- НОВОЕ ПОЛЕ ДЛЯ ОТСЛЕЖИВАНИЯ ТРИАЛА ---
+    has_received_trial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
-    referral_bonus_days = IntegerField(default=0)
-    is_first_payment_made = BooleanField(default=False)
+    referrer_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id', ondelete='SET NULL'), nullable=True)
+    referral_bonus_days: Mapped[int] = mapped_column(Integer, default=0)
+    is_first_payment_made: Mapped[bool] = mapped_column(Boolean, default=False)
+    support_topic_id: Mapped[int] = mapped_column(Integer, nullable=True)
 
-    class Meta:
-        # Указываем имя таблицы в нижнем регистре, как принято в PostgreSQL
-        table_name = "users" 
-        
-class PromoCode(BaseModel):
-    id = BigAutoField(primary_key=True)
-    code = CharField(unique=True) # Сам промокод, например "SUMMER2025"
-    
-    # Что дает промокод (одно из полей должно быть заполнено)
-    bonus_days = IntegerField(default=0)
-    discount_percent = IntegerField(default=0) # Скидка в процентах (например, 20)
+class Tariff(Base):
+    __tablename__ = 'tariffs'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String)
+    price: Mapped[float] = mapped_column(Float)
+    duration_days: Mapped[int] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # Ограничения
-    expire_date = DateTimeField(null=True) # Дата, после которой код недействителен
-    max_uses = IntegerField(default=1)     # Максимальное количество использований
-    uses_left = IntegerField(default=1)    # Сколько использований осталось
+class PromoCode(Base):
+    __tablename__ = 'promo_codes'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String, unique=True)
+    bonus_days: Mapped[int] = mapped_column(Integer, default=0)
+    discount_percent: Mapped[int] = mapped_column(Integer, default=0)
+    expire_date: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    max_uses: Mapped[int] = mapped_column(Integer, default=1)
+    uses_left: Mapped[int] = mapped_column(Integer, default=1)
 
-    class Meta:
-        table_name = "promo_codes"
+class UsedPromoCode(Base):
+    __tablename__ = 'used_promo_codes'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id'))
+    promo_code_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('promo_codes.id'))
+    used_date: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
-class UsedPromoCode(BaseModel):
-    user = ForeignKeyField(User, backref='used_promo_codes')
-    promo_code = ForeignKeyField(PromoCode, backref='usages')
-    used_date = DateTimeField(default=datetime.datetime.now)
+class RequiredChannel(Base):
+    __tablename__ = 'required_channels'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, unique=True)
+    channel_name: Mapped[str] = mapped_column(String)
+    channel_url: Mapped[str] = mapped_column(String)
 
-    class Meta:
-        table_name = "used_promo_codes"
 
-def setup_database():
-    """Инициализирует базу данных: подключается и создает таблицы, если их нет."""
-    try:
-        db.connect()
-        # Добавляем Tariff в список создаваемых таблиц
-        db.create_tables([User, Tariff, PromoCode, UsedPromoCode])
-        print("INFO: Database connection successful. Tables User, Tariff created or already exist.")
-        
-        # --- Первоначальное заполнение тарифов ---
-        # Эта функция сработает один раз, если таблица пуста
-        if Tariff.select().count() == 0:
-            initial_fill_tariffs()
-
-    except Exception as e:
-        print(f"ERROR: Database connection failed: {e}")
-    finally:
-        if not db.is_closed():
-            db.close()
-
-def initial_fill_tariffs():
-    """Заполняет таблицу тарифов начальными значениями."""
-    tariffs_data = [
-        {'name': '1 месяц', 'price': 100.0, 'duration_days': 30},
-        {'name': '3 месяца', 'price': 250.0, 'duration_days': 90},
-        {'name': '1 год', 'price': 900.0, 'duration_days': 365}
-    ]
-    with db.atomic():
-        Tariff.insert(tariffs_data).execute()
-    print("INFO: Initial tariffs have been added to the database.")
+# --- 4. Функция для создания таблиц ---
+def setup_database_sync():
+    """Создает таблицы синхронно при старте бота."""
+    engine = create_engine(SYNC_DSN)
+    Base.metadata.create_all(engine)
+    print("INFO: Database tables created or already exist via SQLAlchemy.")

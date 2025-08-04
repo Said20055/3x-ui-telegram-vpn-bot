@@ -75,7 +75,7 @@ async def confirm_and_run_broadcast(call: CallbackQuery, state: FSMContext, bot:
         )
         return
 
-    users_ids = db.get_all_users_ids()
+    users_ids = await db.get_all_users_ids()
     total_users = len(users_ids)
     
     await call.message.edit_text(
