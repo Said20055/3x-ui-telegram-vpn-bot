@@ -9,7 +9,6 @@ from aiogram.fsm.context import FSMContext
 from loader import logger
 from database import requests as db
 # --- ИЗМЕНЕНИЕ: Импортируем наш новый XUIClient ---
-from tgbot.handlers.user.profile import show_profile_logic
 from xui.init_client import XUIClient
 from tgbot.services.subscription import check_subscription
 from tgbot.keyboards.inline import main_menu_keyboard, back_to_main_menu_keyboard, channels_subscribe_keyboard
@@ -60,14 +59,14 @@ async def give_trial_subscription(user_id: int, bot: Bot, xui: XUIClient, chat_i
 
 # --- ГЛАВНЫЙ ХЕНДЛЕР КОМАНДЫ /start ---
 @start_router.message(CommandStart())
-async def process_start_command(message: Message, command: CommandObject, bot: Bot, xui: XUIClient):
+async def process_start_command(message: Message, command: CommandObject, bot: Bot):
     user_id = message.from_user.id
     full_name = message.from_user.full_name
     username = message.from_user.username
     
     user, created = await db.get_or_create_user(user_id, full_name, username)
 
-    # Обработка реферальной ссылки (независимо)
+    # --- ОБРАБОТКА РЕФЕРАЛЬНОЙ ССЫЛКИ (НЕЗАВИСИМО) ---
     if created and command and command.args and command.args.startswith('ref'):
         # ... (этот блок остается без изменений) ...
         try:
@@ -77,37 +76,75 @@ async def process_start_command(message: Message, command: CommandObject, bot: B
                 logger.info(f"User {user_id} was referred by {referrer_id}.")
                 try:
                     await bot.send_message(referrer_id, f"По вашей ссылке зарегистрировался новый пользователь: {full_name}!")
-                except Exception as e:
-                    logger.error(f"Could not send notification to referrer {referrer_id}: {e}")
-        except (ValueError, IndexError, TypeError):
-            logger.warning(f"Invalid referral link used: {command.args}")
+                except Exception: pass
+        except (ValueError, IndexError, TypeError): pass
 
-    # Сценарий для нового пользователя
+    # --- СЦЕНАРИЙ ДЛЯ НОВОГО ПОЛЬЗОВАТЕЛЯ ---
     if created:
-        is_subscribed = await check_subscription(bot, user_id)
-        if is_subscribed:
-            # --- ИЗМЕНЕНИЕ: Убираем bot из вызова ---
-            await give_trial_subscription(user_id=user_id, bot=bot, xui=xui, chat_id= message.chat.id)
-        else:
-            channels = await db.get_all_required_channels()
-            if not channels:
-                logger.warning(f"User {user_id} is a new user, but no channels are in DB. Giving trial immediately.")
-                # --- ИЗМЕНЕНИЕ: Убираем bot из вызова ---
-                await give_trial_subscription(message, xui)
-                return
-
-            keyboard = channels_subscribe_keyboard(channels)
-            await message.answer(
-                "❗️ <b>Для получения пробного периода, пожалуйста, подпишитесь на наши каналы.</b>\n\n"
-                "После подписки нажмите кнопку «Проверить» ниже.",
-                reply_markup=keyboard,
-                disable_web_page_preview=True
-            )
+        welcome_text = (
+            f"👋 <b>Добро пожаловать, {full_name}!</b>\n\n"
+            "Я — ваш персональный VPN-бот, созданный для обеспечения быстрой, безопасной и анонимной работы в интернете.\n\n"
+            "<b>Что вы получаете:</b>\n"
+            "🔹 Высокая скорость и стабильное соединение.\n"
+            "🔹 Защита от блокировок и цензуры.\n"
+            "🔹 Полная анонимность вашего трафика.\n\n"
+            "Чтобы вы могли оценить все преимущества, мы дарим вам <b>бесплатный пробный период на 2 недели!</b>"
+        )
+        await message.answer(welcome_text, reply_markup=main_menu_keyboard())
         return
 
-    # Сценарий для старого пользователя
+    # --- СЦЕНАРИЙ ДЛЯ СТАРОГО ПОЛЬЗОВАТЕЛЯ ---
     await message.answer(f"👋 С возвращением, <b>{full_name}</b>!", reply_markup=main_menu_keyboard())
 
+
+# --- НОВЫЙ ХЕНДЛЕР ДЛЯ КНОПКИ "ПОЛУЧИТЬ БЕСПЛАТНО" ---
+@start_router.callback_query(F.data == "start_trial_process")
+async def start_trial_process_handler(call: CallbackQuery, bot: Bot, xui: XUIClient):
+    """
+    Запускает процесс получения пробной подписки после нажатия на кнопку.
+    Включает проверку на повторное получение.
+    """
+    user_id = call.from_user.id
+    
+    # --- НОВАЯ, ВАЖНАЯ ПРОВЕРКА ---
+    # 1. Получаем пользователя из БД
+    user = await db.get_user(user_id)
+    
+    # 2. Проверяем, получал ли он уже триал
+    if user and user.has_received_trial:
+        await call.answer("Вы уже использовали свой пробный период.", show_alert=True)
+        # Заменяем приветственное сообщение на стандартное главное меню
+        await call.message.edit_text(
+            f"👋 Добро пожаловать, <b>{call.from_user.full_name}</b>!",
+            reply_markup=main_menu_keyboard()
+        )
+        return # Прерываем выполнение функции
+
+    # --- Остальная логика остается без изменений ---
+    # 3. Проверяем подписку на каналы
+    is_subscribed = await check_subscription(bot, user_id)
+    if is_subscribed:
+        # Если подписан, сразу выдаем триал
+        await call.answer("Проверка пройдена! Активируем пробный период...", show_alert=True)
+        await call.message.delete()
+        await give_trial_subscription(user_id, bot, xui, call.message.chat.id)
+    else:
+        # Если не подписан, показываем каналы
+        channels = await db.get_all_required_channels()
+        if not channels:
+            logger.warning(f"User {user_id} is starting trial, but no channels are in DB. Giving trial immediately.")
+            await call.answer("Активируем пробный период...", show_alert=True)
+            await call.message.delete()
+            await give_trial_subscription(user_id, bot, xui, call.message.chat.id)
+            return
+
+        keyboard = channels_subscribe_keyboard(channels)
+        await call.message.edit_text(
+            "❗️ <b>Для получения пробного периода, пожалуйста, подпишитесь на наши каналы.</b>\n\n"
+            "После подписки нажмите кнопку «Проверить» ниже.",
+            reply_markup=keyboard,
+            disable_web_page_preview=True
+        )
 
 # --- ХЕНДЛЕР ДЛЯ КНОПКИ ПРОВЕРКИ ---
 @start_router.callback_query(F.data == "check_subscription")

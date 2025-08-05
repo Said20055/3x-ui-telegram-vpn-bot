@@ -21,6 +21,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📲 Инструкция по подключению", callback_data="instruction_info")
     builder.button(text="🎁 Ввести промокод", callback_data="enter_promo_code")
     builder.button(text="💬 Поддержка", callback_data="support_chat_start")
+    builder.button(text="🎁 Бесплатная подписка", callback_data="start_trial_process")
     builder.adjust(1, 2, 2, 1) # Немного изменил расположение для симметрии
     return builder.as_markup()
 
@@ -59,6 +60,7 @@ def channels_subscribe_keyboard(channels: List[RequiredChannel]) -> InlineKeyboa
     for i, channel in enumerate(channels):
         builder.button(text=f"Канал {i+1}: {channel.channel_name}", url=channel.channel_url)
     builder.button(text="✅ Я подписался, проверить", callback_data="check_subscription")
+    builder.button(text="⬅️ Назад в главное меню", callback_data="back_to_main_menu")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -220,7 +222,7 @@ def back_to_main_menu_keyboard() -> InlineKeyboardMarkup:
 def back_to_admin_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура с кнопкой "Назад в админ-меню"."""
     builder = InlineKeyboardBuilder()
-    builder.button(text='⬅️ Назад в админ-меню', callback_data='admin_panel')
+    builder.button(text='⬅️ Назад в админ-меню', callback_data='admin_main_menu')
     return builder.as_markup()
 
 
