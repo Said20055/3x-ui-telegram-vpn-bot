@@ -64,16 +64,6 @@ def channels_subscribe_keyboard(channels: List[RequiredChannel]) -> InlineKeyboa
     builder.adjust(1)
     return builder.as_markup()
 
-
-def help_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для раздела "Помощь" со ссылкой на инструкции."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text='Клиенты для подключения', url='https://marzban-docs.sm1ky.com/start/reality_app/')
-    builder.button(text='⬅️ Назад в главное меню', callback_data='back_to_main_menu')
-    builder.adjust(1)
-    return builder.as_markup()
-
-
 def close_support_chat_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для закрытия чата с поддержкой."""
     builder = InlineKeyboardBuilder()
@@ -126,7 +116,7 @@ def manage_channels_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="➕ Добавить канал", callback_data="admin_add_channel")
     builder.button(text="➖ Удалить канал", callback_data="admin_delete_channel")
-    builder.button(text="⬅️ Назад в админ-меню", callback_data="admin_panel")
+    builder.button(text="⬅️ Назад в админ-меню", callback_data="admin_main_menu")
     builder.adjust(2, 1)
     return builder.as_markup()
 
@@ -142,7 +132,7 @@ def tariffs_list_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
             callback_data=f"admin_manage_tariff_{tariff.id}"
         )
     builder.button(text="➕ Добавить новый тариф", callback_data="admin_add_tariff")
-    builder.button(text="⬅️ Назад в админ-меню", callback_data="admin_panel")
+    builder.button(text="⬅️ Назад в админ-меню", callback_data="admin_main_menu")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -184,7 +174,7 @@ def promo_codes_list_keyboard(promo_codes: list[PromoCode]) -> InlineKeyboardMar
             builder.button(text=f"🗑️ {code.code} ({', '.join(info)})", callback_data=f"admin_delete_promo_{code.id}")
     
     builder.button(text="➕ Добавить новый промокод", callback_data="admin_add_promo")
-    builder.button(text="⬅️ Назад в админ-меню", callback_data="admin_panel")
+    builder.button(text="⬅️ Назад в админ-меню", callback_data="admin_main_menu")
     builder.adjust(1)
     return builder.as_markup()
 

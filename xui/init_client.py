@@ -7,6 +7,32 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from config import Config
 
+def auto_relogin(func):
+    """
+    Декоратор, который перехватывает неудачные запросы, выполняет
+    повторный вход в систему и повторяет исходный запрос.
+    """
+    async def wrapper(self: 'XUIClient', *args, **kwargs):
+        # Делаем первую попытку
+        result = await func(self, *args, **kwargs)
+        
+        # Если первая попытка провалилась (метод вернул None),
+        # предполагаем, что сессия истекла.
+        if result is None:
+            self._logger.warning(f"API call {func.__name__} failed, assuming session expired. Re-logging in and retrying...")
+            
+            # Сбрасываем флаг и выполняем вход заново
+            self._is_logged_in = False
+            login_success = await self.login()
+            
+            # Если повторный вход успешен, повторяем исходный запрос
+            if login_success:
+                self._logger.info(f"Re-login successful. Retrying {func.__name__}...")
+                result = await func(self, *args, **kwargs)
+        
+        return result
+    return wrapper
+
 class XUIClient:
     def __init__(self, config: Config, logger, verify_ssl: bool = False):
         xui_config = config.xui
@@ -30,21 +56,27 @@ class XUIClient:
 
     async def login(self) -> bool:
         session = await self._get_session()
-        if self._is_logged_in: return True
-        self._logger.info("Logging in to 3x-ui panel...")
+        # Не проверяем _is_logged_in здесь, чтобы разрешить принудительный перелогин
+        self._logger.info("Attempting to login to 3x-ui panel...")
         try:
             async with session.post(f"{self._host}/login", data={"username": self._username, "password": self._password}) as response:
                 if response.status == 200:
                     self._logger.info("Login successful.")
                     self._is_logged_in = True
                     return True
-                else: return False
-        except Exception: return False
+                else:
+                    self._logger.error(f"Failed to login. Status: {response.status}, Body: {await response.text()}")
+                    self._is_logged_in = False
+                    return False
+        except Exception as e:
+            self._logger.error(f"An error occurred during login: {e}", exc_info=True)
+            self._is_logged_in = False
+            return False
 
     async def _ensure_logged_in(self):
         if not self._is_logged_in:
             await self.login()
-
+    @auto_relogin
     async def _get_inbound_data(self, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
         now = datetime.now()
         if not force_refresh and self._inbound_cache and self._cache_time and (now - self._cache_time).total_seconds() < 5:
@@ -104,6 +136,8 @@ class XUIClient:
             security = stream_settings.get("security", "none")
         
             self._logger.debug(f"Building link with params: protocol={protocol}, domain={domain}, port={port}, security={security}")
+            
+            user_flow = "xtls-rprx-vision"
         
             link = f"{protocol}://{user_uuid}@{domain}:{port}?type={stream_settings.get('network', 'tcp')}"
 
@@ -127,7 +161,11 @@ class XUIClient:
                     return f"Ошибка: неполные настройки REALITY в панели. Обратитесь к администратору."
 
                 link += f"&security=reality&fp={fp}&pbk={pbk}&sni={sni}&sid={sid}"
-        
+
+            if user_flow:
+                link += f"&flow={user_flow}"
+                self._logger.debug(f"Added flow='{user_flow}' to the link.")
+                
             bot_name = getattr(self.config.tg_bot, 'bot_name', 'VPN') # Безопасное получение имени бота
             link += f"#{bot_name}_{user_data.get('email', '')}"
         
@@ -138,14 +176,14 @@ class XUIClient:
         # Логируем любую непредвиденную ошибку
             self._logger.error(f"Unexpected error while building config link for '{username}': {e}", exc_info=True)
             return None
-
+    @auto_relogin
     async def add_user(self, username: str, expire_days: int, traffic_gb: int = 1000) -> Optional[str]:
         await self._ensure_logged_in()
         session = await self._get_session()
         expire_time = int((datetime.now() + timedelta(days=expire_days)).timestamp() * 1000)
         traffic_bytes = traffic_gb * 1024 * 1024 * 1024
         client_uuid = str(uuid.uuid4())
-        new_client_settings = {"id": client_uuid, "email": username.lower(), "enable": True, "expiryTime": expire_time, "totalGB": traffic_bytes, "flow": ""}
+        new_client_settings = {"id": client_uuid, "email": username.lower(), "enable": True, "expiryTime": expire_time, "totalGB": traffic_bytes, "flow": "xtls-rprx-vision"}
         payload = {"id": self.inbound_id, "settings": json.dumps({"clients": [new_client_settings]})}
         try:
             async with session.post(f"{self._host}/panel/api/inbounds/addClient", json=payload) as response:
@@ -155,7 +193,7 @@ class XUIClient:
                     await self._get_inbound_data(force_refresh=True)
                     return client_uuid
         except Exception: return None
-
+    @auto_relogin
     async def _update_user(self, user_data: Dict[str, Any]) -> Optional[str]:
         await self._ensure_logged_in()
         session = await self._get_session()
@@ -181,8 +219,9 @@ class XUIClient:
             return await self._update_user(updated_user_data)
         else:
             return await self.add_user(username=username.lower(), expire_days=expire_days, traffic_gb=traffic_gb)
-
+    @auto_relogin   
     async def delete_user(self, username: str) -> bool:
+        # (тело функции немного адаптируем, чтобы она возвращала None при ошибке)
         await self._ensure_logged_in()
         session = await self._get_session()
         user = await self.get_user(username)
@@ -195,8 +234,9 @@ class XUIClient:
                 if result.get("success"):
                     await self._get_inbound_data(force_refresh=True)
                     return True
-        except Exception: return False
-        return False
+        except Exception as e:
+            self._logger.error(f"Error deleting user {user_uuid}: {e}", exc_info=True)
+        return False # Возвращаем False при любой ошибке
 
     async def close(self):
         if self._session and not self._session.closed:

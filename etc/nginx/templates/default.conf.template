@@ -61,7 +61,7 @@ server {
     
     location / {
         # Перенаправляем все запросы на наш сервис xui по протоколу http.
-        proxy_pass http://xui:54321;
+        proxy_pass http://xui:2053;
         
         # Стандартные заголовки для корректной работы WebSocket и передачи IP.
         proxy_http_version 1.1;

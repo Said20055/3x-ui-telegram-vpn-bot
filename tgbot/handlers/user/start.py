@@ -25,12 +25,12 @@ async def give_trial_subscription(user_id: int, bot: Bot, xui: XUIClient, chat_i
     Создает пользователя в 3x-ui на 14 дней, обновляет БД и отправляет сообщение.
     Принимает только ID, чтобы быть полностью независимой.
     """
-    trial_days = 14
+    trial_days = 7
     xui_username = f"user_{user_id}"
     
     try:
         # 1. Создаем пользователя в панели 3x-ui
-        result_uuid = await xui.add_user(username=xui_username, expire_days=trial_days)
+        result_uuid = await xui.modify_user(username=xui_username, expire_days=trial_days)
         if not result_uuid:
             raise Exception("XUIClient failed to create user.")
 
@@ -88,7 +88,7 @@ async def process_start_command(message: Message, command: CommandObject, bot: B
             "🔹 Высокая скорость и стабильное соединение.\n"
             "🔹 Защита от блокировок и цензуры.\n"
             "🔹 Полная анонимность вашего трафика.\n\n"
-            "Чтобы вы могли оценить все преимущества, мы дарим вам <b>бесплатный пробный период на 2 недели!</b>"
+            "Чтобы вы могли оценить все преимущества, мы дарим вам <b>бесплатный пробный период на неделю!</b>"
         )
         await message.answer(welcome_text, reply_markup=main_menu_keyboard())
         return

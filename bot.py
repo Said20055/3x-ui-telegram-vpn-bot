@@ -42,8 +42,6 @@ async def on_startup(bot): # Добавили marzban в аргументы
     # else:
     #     logger.error("Could not connect to Marzban panel!")
 
-    # 2. Отправляем сообщение админу о запуске
-    await broadcaster.broadcast(bot, config.tg_bot.admin_ids, "Бот запущен")
     logger.info("Startup message sent to admin.")
 
     # 3. Устанавливаем команды меню
